@@ -7,7 +7,7 @@ from sqlalchemy import create_engine, text
 from pandas.io.sql import get_schema
 import logging
 from argparse import ArgumentParser
-from s3_read_write import S3ReadWrite
+from subscriber_learn.utils.s3_read_write import S3ReadWrite
 from datetime import datetime, timedelta
 
 def main(args):

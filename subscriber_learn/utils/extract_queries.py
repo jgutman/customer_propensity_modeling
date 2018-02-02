@@ -1,3 +1,4 @@
+ETLV_MODIFIED = """
 with
 actives as (
     select u.user_id AS internal_user_id
@@ -147,7 +148,7 @@ recipes_aggregate as (
     inner join dw.menu_order_boxes mob2
         on mob.internal_menu_order_id = mob2.internal_menu_order_id
         and not mob.canceled
-    inner join ecommerce_menu_order_recipes_re r
+    inner join web.ecommerce_menu_order_recipes r
         on mob2.internal_menu_order_id = r.id
   GROUP BY 1
 ),
@@ -932,3 +933,4 @@ left join employee
   ON u.internal_user_id = employee.user_id
 where employee.user_id IS null
   and u.email not like '%@plated.com'
+"""

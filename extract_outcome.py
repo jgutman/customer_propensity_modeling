@@ -1,4 +1,4 @@
-from s3_read_write import S3ReadWrite
+from subscriber_learn.utils.s3_read_write import S3ReadWrite
 import pandas as pd
 from datetime import datetime, timedelta
 
@@ -6,9 +6,9 @@ date_fmt = '%Y-%m-%d'
 s3_input = S3ReadWrite('plated-data-science', 'sample_input_data')
 s3_output = S3ReadWrite('plated-data-science', 'sample_output_data')
 input_folder = 'ETLV_v2'
-x0 = datetime.strptime('2018-01-28', date_fmt)
+x0 = datetime.strptime('2018-01-31', date_fmt)
 
-n_folds = 12
+n_folds = 14
 offset = 7
 outcome_dates = [x0 - timedelta(days = offset * i)
                 for i in range(n_folds)]
