@@ -141,8 +141,7 @@ ecommerce_menu_order_recipes_re as (
 recipes_aggregate as (
     select mob.internal_user_id,
         count( r.recipe_id ) AS total_recipes_ordered,
-        count( distinct r.recipe_id ) AS distinct_recipes_ordered,
-        avg( r.price_per_portion ) AS avg_portion_price
+        count( distinct r.recipe_id ) AS distinct_recipes_ordered
     from mob
     inner join dw.menu_order_boxes mob2
         on mob.internal_menu_order_id = mob2.internal_menu_order_id
@@ -596,7 +595,8 @@ latest_box_defaults as (
       max( case when not provisional_box_custom_delivery_date
         then delivery_date end ) AS default_day
     from dw.menu_order_boxes
-    where date( provisional_box_locked_at ) <= :end_date
+    where delivery_schedule_type = 'normal'
+        and date( provisional_box_locked_at ) <= :end_date
     GROUP BY 1
 ),
 first_last_hit as (
@@ -614,7 +614,7 @@ default_address as (
     from dw.menu_order_boxes
     where delivery_schedule_type = 'normal'
       and date( provisional_box_locked_at ) <= :end_date
-      and provisional_box_custom_address
+      and not provisional_box_custom_address
 ),
 employee as (
     select distinct ud.user_id
@@ -680,7 +680,6 @@ select
       AS total_recipes_ordered,
     COALESCE( recipes_aggregate.distinct_recipes_ordered, 0)
       AS distinct_recipes_ordered,
-    recipes_aggregate.avg_portion_price,
     COALESCE( dislikes_binary.dislikes_beef, false) AS dislikes_beef,
     COALESCE( dislikes_binary.dislikes_fish, false) AS dislikes_fish,
     COALESCE( dislikes_binary.dislikes_lamb, false) AS dislikes_lamb,

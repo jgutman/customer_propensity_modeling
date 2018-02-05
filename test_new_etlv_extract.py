@@ -27,7 +27,7 @@ def main(args):
 
     outcome_dates = [args.outcome_date - timedelta(days = args.offset * i)
         for i in range(args.n_folds + 1)]
-    outcome_dates = [d.strftime('%Y-%m-%d') for d in outcome_dates]
+    date_fmt = '%Y-%m-%d'
 
     connection = create_engine("{driver}://{host}:{port}/{dbname}".format(
           driver = "postgresql+psycopg2",
@@ -39,17 +39,23 @@ def main(args):
 
     query = text(open(args.feature_extract).read())
 
-    s3_writer = S3ReadWrite(bucket = 'plated-data-science',
-        folder = 'sample_input_data')
+    s3_writer = S3ReadWrite(bucket = 'plated-data-science')
     logging.info('S3ReadWrite created in {}'.format(str(s3_writer)))
+    input_dir = 'input_data/ETLV_v2'
 
     for date in outcome_dates:
         data = pd.read_sql_query(query, connection,
-            params = {'end_date': date})
+            params = {'end_date': date.strftime(date_fmt)})
         logging.info('data pulled for {}'.format(date))
-        s3_writer.put_dataframe_to_S3(csv_path = 'ETLV_v2',
-            csv_name = date, dataframe = data)
-        logging.info('data saved for {}'.format(date))
+        s3_writer.put_dataframe_to_S3(
+            csv_name = '{dir}/{year}/{month}/{day}/{date}.csv'.format(
+                dir = input_dir,
+                year = date.year,
+                month = date.month,
+                day = date.day,
+                date = date.strftime(date_fmt)),
+            dataframe = data)
+        logging.info('data saved for {}'.format(date.strftime(date_fmt)))
 
 
 if __name__ == '__main__':

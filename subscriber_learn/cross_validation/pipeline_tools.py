@@ -106,6 +106,13 @@ def build_param_grid(pipeline, grid_path):
         param_grid.update(new_options)
     return param_grid
 
+def collapse_categories(col, otherized, max_n = 15):
+    x = col.value_counts(dropna = False)
+    if x.shape[0] > max_n:
+        other = x.iloc[max_n:].index
+        other_values_col = {val: 'other' for val in other}
+        otherized.update({col.name: other_values_col})
+
 
 class DummyEncoder(BaseEstimator, TransformerMixin):
     """A one-hot encoder transformer with fit and transform methods.
@@ -118,9 +125,10 @@ class DummyEncoder(BaseEstimator, TransformerMixin):
     def __init__(self):
         self.columns = None
         self.transformed_columns = None
+        self.other = dict()
 
     def transform(self, X, y=None, **kwargs):
-        transformed = pd.get_dummies(X,
+        transformed = pd.get_dummies(X.replace(self.other),
             columns = self.columns,
             drop_first = False, # do not drop in transform method!
             dummy_na = True)
@@ -131,7 +139,9 @@ class DummyEncoder(BaseEstimator, TransformerMixin):
         self.columns = X.select_dtypes(
             include = ['object', 'category']).columns
 
-        transformed = pd.get_dummies(X,
+        X.apply(collapse_categories, otherized = self.other, max_n = 15)
+
+        transformed = pd.get_dummies(X.replace(self.other),
             columns = self.columns,
             drop_first = False, # need to be careful about dropping this
             dummy_na = True)
