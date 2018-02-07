@@ -1,117 +1,52 @@
-from sklearn.pipeline import TransformerMixin
+from sklearn.pipeline import TransformerMixin, Pipeline
 from sklearn.base import BaseEstimator
 import pandas as pd
 import re, yaml, logging
-import time, datetime
+from datetime import datetime, timedelta
 
-def extract_step_from_pipeline(cv_pipeline, step_name):
-    """Extract the object corresponding to an explicitly named step from the
-    modeling pipeline.
-    Args:
-        cv_pipeline (sklearn.GridSearchCV): a GridSearchCV object with an embedded
-            Pipeline object containing a list of named steps
-        step_name (str): a step name contained in the list of steps for the best
-            fitted estimator found under GridSearch
-    Returns:
-        obj: an object with a .fit() and .transform() method with parameters
-            selected by grid search
-    """
-    steps = cv_pipeline.best_estimator_.named_steps
-    return steps.get(step_name)
+class CVPipeline(Pipeline):
+    def __init__(self, steps):
+        self.steps = steps
+        self._validate_steps()
+        self.param_grid = dict()
 
+    def set_param_grid(self, grid):
+        param_grid = {'{step_name}__{option_name}'.format(
+            step_name = step, option_name = option): value
+            for step_name, step_options in grid.items() # nested dictionary
+            for option, value in step_options.items()
+            # only grid options relevant to the pipeline object
+            if step_name in self.named_steps}
 
-def describe_pipeline_steps(cv_pipeline):
-    """Returns a list of names of all steps in a fitted modeling pipeline.
-    Args:
-        cv_pipeline (sklearn.GridSearchCV): a GridSearchCV object with an embedded
-            Pipeline object containing a list of named steps
-    Returns:
-        list[str]: a list of strings containing all pipeline step names
-    """
-    steps = cv_pipeline.best_estimator_.named_steps
-    return list(steps.keys())
+        self.param_grid = param_grid
 
+    def extract_step(self, step_name):
+        return self.best_estimator_.named_steps.get(step_name)
 
-def extract_model_from_pipeline(cv_pipeline):
-    """Extract the object corresponding to the final model estimator
-    (classifier or regressor) for the best fitted estimator of the pipeline.
-    Args:
-        cv_pipeline (sklearn.GridSearchCV): a GridSearchCV object with an embedded
-            Pipeline object containing a list of named steps
-    Returns:
-        sklearn.estimator: a fitted model estimator object with a predict()
-            method (and for classifiers, predict_proba() or decision_function())
-    """
-    steps = describe_pipeline_steps(cv_pipeline)
-    pattern = "(classifier|regressor)$"
-    prog = re.compile(pattern)
-    model_step_name = [step for step in steps if bool(prog.search(step))]
-    model_step = extract_step_from_pipeline(cv_pipeline, model_step_name[-1])
-    return model_step
+    def describe(self):
+        return self.best_estimator_.named_steps.keys()
 
+    def extract_model(self):
+        """Extract the object corresponding to the final model estimator
+        (classifier or regressor) for the best fitted estimator of the pipeline.
+        """
+        model_step_name = [step for step in self.describe()
+            if step.endswith('classifier') or step.endswith('regressor')][-1]
+        model = self.extract_step(model_step_name)
+        return model
 
-def extract_encoder_from_pipeline(cv_pipeline):
-    """Extract the encoder step used to transform categorical variables into
-    numerical dummy variables.
-    Args:
-        cv_pipeline (sklearn.GridSearchCV): a GridSearchCV object with an embedded
-            Pipeline object containing a list of named steps
-    Returns:
-        DummyEncoder: an encoder object with a fit(), transform(), and
-            inverse_transform() method to convert between categorical variables
-            and their dummy indicators
-    """
-    steps = describe_pipeline_steps(cv_pipeline)
-    pattern = "encoder$"
-    prog = re.compile(pattern)
-    encoder_step_name = [step for step in steps if bool(prog.search(step))]
-    encoder_step = extract_step_from_pipeline(
-        cv_pipeline, encoder_step_name[-1])
-    return encoder_step
+    def extract_encoder(self):
+        """Extract the encoder step used to transform categorical variables into
+        numerical dummy variables."""
+        encoder_step_name = [step for step in self.describe()
+            if step.endswith('encoder')][-1]
+        encoder = self.extract_step(encoder_step_name)
+        return encoder
 
-
-def get_transformed_columns(cv_pipeline):
-    """Returns a list of column names in the transformed data after applying an
-    encoder transformation to the data.
-    Args:
-        cv_pipeline (sklearn.GridSearchCV): a GridSearchCV object with an embedded
-            Pipeline object containing a list of named steps
-    Returns:
-        pandas.Index: an index of all column names in the transformed data
-    """
-    encoder_step = extract_encoder_from_pipeline(cv_pipeline)
-    return encoder_step.transformed_columns
-
-
-def build_param_grid(pipeline, grid_path):
-    """Looks up pipeline steps in grid options yaml file and builds the
-    appropriate parameter grid for steps in the pipeline.
-    Args:
-        pipeline (sklearn.Pipeline): a pipeline object with named_steps attribute
-        grid_path: path to a yaml file containing the grid options to use
-    Returns:
-        dict: dictionary with step names as keys and parameter options as values
-    """
-    with open(grid_path, 'r') as f:
-        grid = yaml.load(f)
-    steps = set(pipeline.named_steps.keys())
-
-    param_grid = dict()
-    for step in steps.intersection(grid.keys()):
-        options = grid.get(step)
-        new_options = {'{step_name}__{option_name}'.format(
-            step_name = step,
-            option_name = option): value for option, value in
-            options.items()}
-        param_grid.update(new_options)
-    return param_grid
-
-def collapse_categories(col, otherized, max_n = 15):
-    x = col.value_counts(dropna = False)
-    if x.shape[0] > max_n:
-        other = x.iloc[max_n:].index
-        other_values_col = {val: 'other' for val in other}
-        otherized.update({col.name: other_values_col})
+    def extract_transformed_columns(self):
+        """Returns a list of column names in the transformed data after applying an
+        encoder transformation to the data."""
+        return self.extract_encoder().transformed_columns
 
 
 class DummyEncoder(BaseEstimator, TransformerMixin):
@@ -127,31 +62,62 @@ class DummyEncoder(BaseEstimator, TransformerMixin):
         self.transformed_columns = None
         self.other = dict()
 
+    def collapse_categories(self, col, max_n = 15):
+        x = col.value_counts()
+        if x.shape[0] > max_n:
+            keep = x.iloc[:max_n].index
+            # changes the dictionary in place
+            self.other[col.name] = keep
+
+    def otherize(self, col, X, replacement = "other"):
+        # changes the input data in place
+        X.loc[~X[col].isin(self.other[col]), col] = replacement
+
     def transform(self, X, y=None, **kwargs):
-        transformed = pd.get_dummies(X.replace(self.other),
-            columns = self.columns,
-            drop_first = False, # do not drop in transform method!
-            dummy_na = True)
-        transformed = transformed.loc[:,self.transformed_columns]
+        logging.info('Getting dummies: transform data')
+        [self.otherize(col, X) for col in self.other.keys()]
+        logging.info('Replaced values in {} features'.format(
+            len(self.other.keys())))
+
+        transformed = pd.get_dummies(X, dummy_na = True)
+        empty_cols = self.transformed_columns.difference(transformed.columns)
+        if empty_cols.any():
+            transformed[empty_cols] = 0
+
+        transformed = transformed[self.transformed_columns]
+        n_dummies = len(transformed.columns) - len(X.columns) + len(self.columns)
+        logging.info('Transformed {} dummies out of {} features'.format(
+            n_dummies, len(self.columns)))
         return transformed
 
     def fit(self, X, y=None, **kwargs):
         self.columns = X.select_dtypes(
             include = ['object', 'category']).columns
 
-        X.apply(collapse_categories, otherized = self.other, max_n = 15)
+        logging.info('Collapsing categories in {} categorical features'.format(
+            len(self.columns)))
+        X[self.columns].apply(lambda x: self.collapse_categories(x))
 
-        transformed = pd.get_dummies(X.replace(self.other),
-            columns = self.columns,
-            drop_first = False, # need to be careful about dropping this
-            dummy_na = True)
-        self.transformed_columns = transformed.columns
+        logging.info('Getting dummies: fit encoder')
+        X = X.copy()
+        [self.otherize(col, X) for col in self.other.keys()]
+        logging.info('Replaced values in {} features'.format(
+            len(self.other.keys())))
+
+        transformed = pd.get_dummies(X, dummy_na = True, sparse = True)
+        self.transformed_columns = pd.Index([col for col in transformed.columns
+            if not col.endswith('_other')])
+
+        n_dummies = len(self.transformed_columns) - len(X.columns) + len(self.columns)
+        # drop columns ending in _other
+        logging.info('Fit {} dummies out of {} features'.format(
+            n_dummies, len(self.columns)))
         return self
 
 
 class Timer(object):
-    """A Timer object that begins timing when entered and ends timing adding
-    elapsed time to a log when exited.
+    """A Timer object that begins timing when entered and ends timing recording
+    elapsed time when exited.
 
     Usage:
         with Timer() as t:
@@ -163,15 +129,19 @@ class Timer(object):
         self.end_time = None
 
     def __enter__(self):
-        self.start_time = time.time()
+        self.start_time = datetime.now()
         return self
 
     def time_check(self):
-        return time.time() - self.start_time
+        elapsed = self.end_time - self.start_time
+        msg = 'Time elapsed: {hh} hours, {mm} minutes, {ss} seconds'.format(
+            hh = elapsed.seconds//3600,
+            mm = (elapsed.seconds//60) % 60,
+            ss = elapsed.seconds % 60)
+        return msg
 
     def __exit__(self, type, value, traceback):
         if self.name:
             logging.info("{}: ".format(self.name))
-        self.end_time = self.time_check()
-        logging.info('Time elapsed: {}'.format(
-            datetime.timedelta(seconds=int(self.end_time))))
+        self.end_time = datetime.now()
+        logging.info(self.time_check())

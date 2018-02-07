@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from subscriber_learn.cross_validation import temporal_cv, pipeline_tools
+from ..cross_validation import temporal_cv, pipeline_tools
 import os, fnmatch
 from sklearn.externals import joblib
 
