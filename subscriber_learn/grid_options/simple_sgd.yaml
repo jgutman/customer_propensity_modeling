@@ -1,0 +1,19 @@
+classifier:
+  alpha: np.logspace(-3, -6, 4)
+  penalty:
+    - l1
+    - l2
+    - elasticnet
+  loss:
+    - log
+    - hinge
+  tol:
+    - 1e-3
+
+feature_selector:
+  threshold:
+    - .04
+
+imputer:
+  strategy:
+    - median

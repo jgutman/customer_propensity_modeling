@@ -21,10 +21,10 @@ class CVPipeline(Pipeline):
         self.param_grid = param_grid
 
     def extract_step(self, step_name):
-        return self.best_estimator_.named_steps.get(step_name)
+        return self.named_steps.get(step_name)
 
     def describe(self):
-        return self.best_estimator_.named_steps.keys()
+        return self.named_steps.keys()
 
     def extract_model(self):
         """Extract the object corresponding to the final model estimator
@@ -70,14 +70,13 @@ class DummyEncoder(BaseEstimator, TransformerMixin):
             self.other[col.name] = keep
 
     def otherize(self, col, X, replacement = "other"):
-        # changes the input data in place
+        # changes the data in place! make a copy before running
         X.loc[~X[col].isin(self.other[col]), col] = replacement
 
     def transform(self, X, y=None, **kwargs):
         logging.info('Getting dummies: transform data')
+        X = X.copy()
         [self.otherize(col, X) for col in self.other.keys()]
-        logging.info('Replaced values in {} features'.format(
-            len(self.other.keys())))
 
         transformed = pd.get_dummies(X, dummy_na = True)
         empty_cols = self.transformed_columns.difference(transformed.columns)
@@ -85,33 +84,29 @@ class DummyEncoder(BaseEstimator, TransformerMixin):
             transformed[empty_cols] = 0
 
         transformed = transformed[self.transformed_columns]
-        n_dummies = len(transformed.columns) - len(X.columns) + len(self.columns)
-        logging.info('Transformed {} dummies out of {} features'.format(
-            n_dummies, len(self.columns)))
+        #n_dummies = len(transformed.columns) - len(X.columns) + len(self.columns)
+        #logging.info('Transformed {} dummies out of {} features'.format(
+        #    n_dummies, len(self.columns)))
         return transformed
 
     def fit(self, X, y=None, **kwargs):
         self.columns = X.select_dtypes(
             include = ['object', 'category']).columns
 
-        logging.info('Collapsing categories in {} categorical features'.format(
-            len(self.columns)))
         X[self.columns].apply(lambda x: self.collapse_categories(x))
 
         logging.info('Getting dummies: fit encoder')
         X = X.copy()
         [self.otherize(col, X) for col in self.other.keys()]
-        logging.info('Replaced values in {} features'.format(
-            len(self.other.keys())))
 
         transformed = pd.get_dummies(X, dummy_na = True, sparse = True)
+        # drop columns ending in _other
         self.transformed_columns = pd.Index([col for col in transformed.columns
             if not col.endswith('_other')])
 
-        n_dummies = len(self.transformed_columns) - len(X.columns) + len(self.columns)
-        # drop columns ending in _other
-        logging.info('Fit {} dummies out of {} features'.format(
-            n_dummies, len(self.columns)))
+        #n_dummies = len(self.transformed_columns) - len(X.columns) + len(self.column
+        #logging.info('Fit {} dummies out of {} features'.format(
+        #    n_dummies, len(self.columns)))
         return self
 
 
