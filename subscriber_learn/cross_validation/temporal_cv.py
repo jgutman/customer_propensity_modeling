@@ -127,12 +127,16 @@ def fit_pipeline( n_folds, offset, n_weeks, input_dir, response_dir,
         # verbose output suppressed during multiprocessing
         verbose = 2) # show folds and model fits as they complete
 
-    pkl_path = 'models/pkls/{model_name}/{year}/{month}/{day}'
-    pickler = S3Pickler()
+    persisted_at = datetime.datetime.now()
+    pkl_path = 'models/pkls/{model_name}/{year}/{month}/{day}'.format(
+        model_name = model_name,
+        year = persisted_at.year,
+        month = persisted_at.month,
+        day = persisted_at.day)
 
     with Timer('fit pipeline') as t:
         grid_search.fit(input_data, response_data)
-        pickler.dump(grid_search.best_estimator_, pkl_path, model_name)
+        S3Pickler().dump(grid_search.best_estimator_, pkl_path, model_name)
 
     logging.info('CV AUC: {0:.3f}'.format(grid_search.best_score_))
     risk_scores = grid_search.predict_proba(input_data, response_data)
@@ -143,6 +147,7 @@ def main():
         'offset': 7,
         'n_weeks': 4,
         'model_name': 'canceled_within_7_days_v1',
+        'grid_name': 'simple_sgd',
         'input_dir': 'input_files/etlv_modified',
         'response_dir': 'input_files/responses/canceled_within_7_days'}
 
@@ -155,6 +160,7 @@ def main():
         offset = op_kwargs['offset'],
         n_weeks = op_kwargs['n_weeks'],
         model_name = op_kwargs['model_name'],
+        grid_name = op_kwargs['grid_name'],
         input_dir = op_kwargs['input_dir'],
         response_dir = op_kwargs['response_dir'], **context)
 

@@ -4,9 +4,11 @@ from sklearn.externals import joblib
 from ruamel.yaml import YAML
 import numpy as np
 import scipy.stats as sp
+import os
+
 
 class S3Pickler(S3ReadWrite):
-    def __init__(self, bucket = os.getenv('S3_AIRFLOW_BUCKET')):
+    def __init__(self, bucket = 'plated-data-science')):
         super().__init__(bucket)
 
     def load(self, path, filename):
@@ -27,7 +29,7 @@ class S3Pickler(S3ReadWrite):
 
 
 class ParamGridLoader(S3ReadWrite):
-    def __init__(self, bucket = os.getenv('S3_AIRFLOW_BUCKET')):
+    def __init__(self, bucket = 'plated-data-science'):
         super().__init__(bucket)
 
     def load_grid(self, path, filename):
@@ -39,8 +41,8 @@ class ParamGridLoader(S3ReadWrite):
         raw_grid = YAML().load(BytesIO(value))
         processed_grid = {step: {option: eval(value)
             if type(value) == str else value
-            for option, value in nested.items()
-            for step, nested in raw_grid.items()}}
+            for option, value in nested.items()}
+            for step, nested in raw_grid.items()}
         return processed_grid
 
     def dump_grid(self, grid, path, filename):
