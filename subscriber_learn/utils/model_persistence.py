@@ -8,7 +8,7 @@ import os
 
 
 class S3Pickler(S3ReadWrite):
-    def __init__(self, bucket = 'plated-data-science')):
+    def __init__(self, bucket = 'plated-data-science'):
         super().__init__(bucket)
 
     def load(self, path, filename):
@@ -39,11 +39,22 @@ class ParamGridLoader(S3ReadWrite):
             )['Body'].read()
 
         raw_grid = YAML().load(BytesIO(value))
-        processed_grid = {step: {option: eval(value)
-            if type(value) == str else value
-            for option, value in nested.items()}
-            for step, nested in raw_grid.items()}
+        processed_grid = {
+            step: {
+                option: eval(value)
+                if type(value) == str else value
+                for option, value in nested.items()
+            }
+            for step, nested in raw_grid.items()
+        }
         return processed_grid
+
+    def load_grid_local(self, local_path, s3_path, filename):
+        with open(local_path, 'rb') as f:
+            raw_grid = YAML().load(f)
+
+        self.dump_grid(raw_grid, s3_path, filename)
+        return dict(raw_grid)
 
     def dump_grid(self, grid, path, filename):
         f = BytesIO()

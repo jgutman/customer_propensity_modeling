@@ -6,18 +6,17 @@ from datetime import datetime, timedelta
 
 class CVPipeline(Pipeline):
     def __init__(self, steps):
-        self.steps = steps
-        self._validate_steps()
+        super().__init__(steps)
         self.param_grid = dict()
 
     def set_param_grid(self, grid):
-        param_grid = {'{step_name}__{option_name}'.format(
-            step_name = step, option_name = option): value
-            for step_name, step_options in grid.items() # nested dictionary
+        param_grid = {
+            '{step}__{option}'.format(
+                step = step, option = option): value
+            for step, step_options in grid.items()
             for option, value in step_options.items()
-            # only grid options relevant to the pipeline object
-            if step_name in self.named_steps}
-
+            if step in self.named_steps
+        }
         self.param_grid = param_grid
 
     def extract_step(self, step_name):
@@ -57,15 +56,16 @@ class DummyEncoder(BaseEstimator, TransformerMixin):
         d = DummyEncoder().fit(X_train)
         X_train_enc, X_test_enc = d.transform(X_train), d.transform(X_test)
     """
-    def __init__(self):
+    def __init__(self, max_n = 15):
         self.columns = None
         self.transformed_columns = None
         self.other = dict()
+        self.max_n = int(max_n)
 
-    def collapse_categories(self, col, max_n = 15):
+    def collapse_categories(self, col):
         x = col.value_counts()
-        if x.shape[0] > max_n:
-            keep = x.iloc[:max_n].index
+        if x.shape[0] > self.max_n:
+            keep = x.iloc[:self.max_n].index
             # changes the dictionary in place
             self.other[col.name] = keep
 

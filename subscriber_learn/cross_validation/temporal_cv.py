@@ -1,9 +1,9 @@
-import datetime
+from datetime import datetime, timedelta
 from ..utils.s3_read_write import S3ReadWrite
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import RandomizedSearchCV
-from sklearn import linear_model, feature_selection, preprocessing
+from sklearn import linear_model, ensemble, feature_selection, preprocessing
 from .pipeline_tools import *
 import logging
 from ..utils.model_persistence import *
@@ -41,7 +41,7 @@ def get_temporal_cv(X, n_weeks, fold_col = 'input_date'):
 
 
 def get_input_dates(end_date, offset, n_folds, n_weeks):
-    return [end_date - datetime.timedelta(days = offset * i)
+    return [end_date - timedelta(days = offset * i)
         for i in range(n_folds + n_weeks)]
 
 
@@ -91,7 +91,9 @@ def read_data(input_paths, response_paths, fold_col = 'input_date'):
 
 
 def fit_pipeline( n_folds, offset, n_weeks, input_dir, response_dir,
-    model_name, grid_name, n_jobs = 1, **context ):
+    model_name, grid_name, n_iter,
+    # n_jobs = -2 uses all but 1 cpu
+    n_jobs = -2, **context ):
     logging.basicConfig(
         level=logging.INFO,
         format = '{asctime} {name:12s} {levelname:8s} {message}',
@@ -103,13 +105,12 @@ def fit_pipeline( n_folds, offset, n_weeks, input_dir, response_dir,
     response_paths = get_input_paths(dates, response_dir)
     input_data, response_data = read_data(input_paths, response_paths)
 
-
     pipeline = CVPipeline([
         ('encoder', DummyEncoder()),
         ('imputer', preprocessing.Imputer()),
         ('scaler', preprocessing.RobustScaler()),
         ('feature_selector', feature_selection.VarianceThreshold()),
-        ('clf', linear_model.SGDClassifier(verbose = 1, random_state = 1100))
+        ('random_forest', ensemble.RandomForestClassifier(random_state = 1100))
         ])
 
     logging.info('Pipeline constructed with {} steps'.format(
@@ -117,17 +118,18 @@ def fit_pipeline( n_folds, offset, n_weeks, input_dir, response_dir,
 
     grid = ParamGridLoader().load_grid('models/grids', grid_name)
     pipeline.set_param_grid(grid)
+    print(pipeline.param_grid)
 
     cv = get_temporal_cv(input_data, n_weeks)
 
     grid_search = RandomizedSearchCV(pipeline,
-        n_jobs = n_jobs, n_iter = 10,
+        refit = False, n_jobs = n_jobs, n_iter = n_iter,
         cv = cv, scoring = 'roc_auc',
         param_distributions = pipeline.param_grid,
         # verbose output suppressed during multiprocessing
         verbose = 2) # show folds and model fits as they complete
 
-    persisted_at = datetime.datetime.now()
+    persisted_at = datetime.now()
     pkl_path = 'models/pkls/{model_name}/{year}/{month}/{day}'.format(
         model_name = model_name,
         year = persisted_at.year,
@@ -139,19 +141,20 @@ def fit_pipeline( n_folds, offset, n_weeks, input_dir, response_dir,
         S3Pickler().dump(grid_search.best_estimator_, pkl_path, model_name)
 
     logging.info('CV AUC: {0:.3f}'.format(grid_search.best_score_))
-    risk_scores = grid_search.predict_proba(input_data, response_data)
+    risk_scores = grid_search.predict_proba(input_data)
 
 
 def main():
     op_kwargs = {'n_folds': 5,
         'offset': 7,
         'n_weeks': 4,
+        'n_iter': 10,
         'model_name': 'canceled_within_7_days_v1',
-        'grid_name': 'simple_sgd',
+        'grid_name': 'random_forest',
         'input_dir': 'input_files/etlv_modified',
         'response_dir': 'input_files/responses/canceled_within_7_days'}
 
-    train_end_date = datetime.date(2018, 1, 31)
+    train_end_date = datetime(2018, 1, 31)
     context = {'ds': train_end_date.strftime('%Y-%m-%d'),
                'execution_date': train_end_date}
 
@@ -159,6 +162,7 @@ def main():
         n_folds = op_kwargs['n_folds'],
         offset = op_kwargs['offset'],
         n_weeks = op_kwargs['n_weeks'],
+        n_iter = op_kwargs['n_iter'],
         model_name = op_kwargs['model_name'],
         grid_name = op_kwargs['grid_name'],
         input_dir = op_kwargs['input_dir'],

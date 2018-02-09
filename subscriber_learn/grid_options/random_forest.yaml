@@ -1,0 +1,29 @@
+# format MUST BE {dict: {dict: [list]}} or {dict: {dict: func()}}
+
+random_forest:
+  n_estimators:
+    - 100
+    - 1000
+  max_depth:
+    - 5
+    - 50
+  max_features:
+    - sqrt
+    - log2
+  min_samples_split:
+    - 2
+    - 10
+
+feature_selector:
+  threshold:
+    - .10
+    - .04
+    - 0.0
+
+imputer:
+  strategy:
+    - median
+
+encoder:
+  max_n:
+    - 15
