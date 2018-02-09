@@ -19,11 +19,11 @@ class CVPipeline(Pipeline):
         }
         self.param_grid = param_grid
 
-    def refit(self, X):
+    def refit(self, final_fold, X, y):
         self.best_estimator_ = clone(self.estimator).set_params(
                 **self.best_params_)
-        final_fold = self.cv
-        self.best_estimator_.fit(X, **fit_params)
+        self.best_estimator_.fit(X.iloc[final_fold, :], y.iloc[final_fold, :])
+        return self
 
     def extract_step(self, step_name):
         return self.named_steps.get(step_name)
@@ -88,11 +88,13 @@ class DummyEncoder(BaseEstimator, TransformerMixin):
         empty_cols = self.transformed_columns.difference(transformed.columns)
         if empty_cols.any():
             transformed[empty_cols] = 0
-
         transformed = transformed[self.transformed_columns]
-        n_dummies = len(transformed.columns) - len(X.columns) + len(self.columns)
-        logging.debug('Transformed {} dummies out of {} features'.format(
-            n_dummies, len(self.columns)))
+
+        n_categorical = len(self.columns)
+        n_non_categorical = len(X.columns) - n_categorical
+        n_dummies = len(transformed.columns) - n_non_categorical
+        logging.debug('Transformed {} categorical features into {} dummies'.format(
+            n_categorical, n_dummies))
         return transformed
 
     def fit(self, X, y=None, **kwargs):
@@ -110,9 +112,11 @@ class DummyEncoder(BaseEstimator, TransformerMixin):
         self.transformed_columns = pd.Index([col for col in transformed.columns
             if not col.endswith('_other')])
 
-        n_dummies = len(self.transformed_columns) - len(X.columns) + len(self.column
-        logging.debug('Fit {} dummies out of {} features'.format(
-            n_dummies, len(self.columns)))
+        n_categorical = len(self.columns)
+        n_non_categorical = len(X.columns) - n_categorical
+        n_dummies = len(self.transformed_columns) - n_non_categorical
+        logging.debug('Fit {} categorical features into {} dummies'.format(
+            n_categorical, n_dummies))
         return self
 
 

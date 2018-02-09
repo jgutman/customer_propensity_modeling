@@ -39,10 +39,9 @@ class TemporalCrossValidator():
             yield np.where(np.isin(self.groups, train_indices))[0], \
                 np.where(self.groups == test_index)[0]
 
-    def final_fold(self, X):
-        train_indices = range(self.n_splits, self.n_splits + self.n_weeks)
-        fold = np.where(np.isin(self.groups, train_indices))[0]
-        return X.iloc[fold, :]
+    def final_fold(self):
+        fold = np.where(self.groups >= self.n_splits)[0]
+        return fold
 
 
 def get_input_dates(end_date, offset, n_folds, n_weeks):
@@ -122,17 +121,17 @@ def fit_pipeline( n_folds, offset, n_weeks, input_dir, response_dir,
 
     grid = ParamGridLoader().load_grid('models/grids', grid_name)
     pipeline.set_param_grid(grid)
-    print(pipeline.param_grid)
+    logging.info('Parameters: {}'.format(pipeline.param_grid))
 
     cv = TemporalCrossValidator(input_data, n_weeks)
-    final_fold = cv.final_fold(input_data)
+    final_fold = cv.final_fold()
 
     grid_search = RandomizedSearchCV(pipeline,
         n_jobs = n_jobs, n_iter = n_iter, refit = False,
         cv = cv.split(), scoring = 'roc_auc',
         param_distributions = pipeline.param_grid,
         # verbose output suppressed during multiprocessing
-        verbose = 2) # show folds and model fits as they complete
+        verbose = 3) # show folds and model fits as they complete
 
     persisted_at = datetime.now()
     pkl_path = 'models/pkls/{model_name}/{year}/{month}/{day}'.format(
@@ -141,13 +140,18 @@ def fit_pipeline( n_folds, offset, n_weeks, input_dir, response_dir,
         month = persisted_at.month,
         day = persisted_at.day)
 
-    with Timer('fit pipeline') as t:
+    logging.info('Beginning partial grid search')
+    logging.info('Sampling {} param settings'.format(n_iter))
+    with Timer('Fit CVPipeline') as t:
         grid_search.fit(input_data, response_data)
         logging.info('Cross-validation completed. Best CV AUC: {0:.3f}'.format(
             grid_search.best_score_))
         logging.info('Best params: {}'.format(grid_search.best_params_))
 
-    grid_search.best_estimator_ = grid_search.refit(final_fold)
+    # Final model using cv best params and final temporal period
+    # sets grid_search.best_estimator_ using grid_search.best_params_
+    print(type(grid_search))
+    grid_search.refit(final_fold, X = input_data, y = response_data)
     S3Pickler().dump(grid_search.best_estimator_, pkl_path, model_name)
 
 
@@ -155,9 +159,9 @@ def main():
     op_kwargs = {'n_folds': 5,
         'offset': 7,
         'n_weeks': 4,
-        'n_iter': 10,
-        'model_name': 'canceled_within_7_days_v1',
-        'grid_name': 'random_forest',
+        'n_iter': 2,
+        'model_name': 'DEBUG_canceled_within_7_days_v1',
+        'grid_name': 'simple_random_forest',
         'input_dir': 'input_files/etlv_modified',
         'response_dir': 'input_files/responses/canceled_within_7_days'}
 
