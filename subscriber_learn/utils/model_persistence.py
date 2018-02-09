@@ -4,7 +4,7 @@ from sklearn.externals import joblib
 from ruamel.yaml import YAML
 import numpy as np
 import scipy.stats as sp
-import os
+import os, logging
 
 
 class S3Pickler(S3ReadWrite):
@@ -12,20 +12,23 @@ class S3Pickler(S3ReadWrite):
         super().__init__(bucket)
 
     def load(self, path, filename):
+        filename = '{}/{}.pkl.z'.format(path, filename)
         value = self.client.get_object(
             Bucket = self.bucket,
-            Key= '{}/{}.pkl.z'.format(path, filename)
-            )['Body'].read()
+            Key= filename)['Body'].read()
+        logging.info('Found file at {} in {}'.format(filename, str(self)))
         return joblib.load(BytesIO(value))
 
     def dump(self, obj, path, filename):
         f = BytesIO()
         joblib.dump(obj, f, compress = True)
+        filename = '{}/{}.pkl.z'.format(path, filename)
 
         self.resource.Bucket(
             self.bucket).put_object(
-            Key = '{}/{}.pkl.z'.format(path, filename),
+            Key = filename,
             Body = f.getvalue())
+        logging.info('Dumped file to {} in {}'.format(filename, str(self)))
 
 
 class ParamGridLoader(S3ReadWrite):
@@ -33,10 +36,10 @@ class ParamGridLoader(S3ReadWrite):
         super().__init__(bucket)
 
     def load_grid(self, path, filename):
+        filename = '{}/{}.yaml'.format(path, filename)
         value = self.client.get_object(
             Bucket = self.bucket,
-            Key= '{}/{}.yaml'.format(path, filename)
-            )['Body'].read()
+            Key= filename)['Body'].read()
 
         raw_grid = YAML().load(BytesIO(value))
         processed_grid = {
@@ -47,6 +50,7 @@ class ParamGridLoader(S3ReadWrite):
             }
             for step, nested in raw_grid.items()
         }
+        logging.info('Found file at {} in {}'.format(filename, str(self)))
         return processed_grid
 
     def load_grid_local(self, local_path, s3_path, filename):
@@ -59,8 +63,10 @@ class ParamGridLoader(S3ReadWrite):
     def dump_grid(self, grid, path, filename):
         f = BytesIO()
         YAML().dump(grid, f)
+        filename = '{}/{}.yaml'.format(path, filename)
 
         self.resource.Bucket(
             self.bucket).put_object(
-            Key = '{}/{}.yaml'.format(path, filename),
+            Key = filename,
             Body = f.getvalue())
+        logging.info('Dumped file to {} in {}'.format(filename, str(self)))

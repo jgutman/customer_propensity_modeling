@@ -1,28 +1,34 @@
 from datetime import datetime, timedelta
-from ..utils.s3_read_write import S3ReadWrite
+import logging
 import pandas as pd
 import numpy as np
+
 from sklearn.model_selection import RandomizedSearchCV
 from sklearn import linear_model, ensemble, feature_selection, preprocessing
+
+from ..utils.s3_read_write import S3ReadWrite
 from .pipeline_tools import *
-import logging
 from ..utils.model_persistence import *
 
 class TemporalCrossValidator():
-    def __init__(self, time_index, n_weeks = 1):
+    def __init__(self, X, n_weeks = 1, fold_col = 'input_date'):
+        time_index = X.index.get_level_values(fold_col)
+
         self.n_weeks = n_weeks
         self.unique_groups, self.groups = np.unique(
             time_index, return_inverse=True)
+
         logging.info('Cross-validating on:\n{}'.format(
             pd.Series(self.unique_groups)))
         n_groups = len(self.unique_groups)
-        self.n_splits = n_groups - n_weeks
+
+        self.n_splits = n_groups - self.n_weeks
         if self.n_splits <= 1:
             raise ValueError(
                 "Found {} time periods in the data, for training folds "
                 "consisting of {} time periods of input per fold. "
                 "Cross-validation requires 2 or more folds".format(
-                n_groups, n_weeks))
+                n_groups, self.n_weeks))
 
     def split(self):
         for fold_index in range(self.n_splits):
@@ -33,11 +39,10 @@ class TemporalCrossValidator():
             yield np.where(np.isin(self.groups, train_indices))[0], \
                 np.where(self.groups == test_index)[0]
 
-
-def get_temporal_cv(X, n_weeks, fold_col = 'input_date'):
-    time_index = X.index.get_level_values(fold_col)
-    cv = TemporalCrossValidator(time_index, n_weeks)
-    return cv.split()
+    def final_fold(self, X):
+        train_indices = range(self.n_splits, self.n_splits + self.n_weeks)
+        fold = np.where(np.isin(self.groups, train_indices))[0]
+        return X.iloc[fold, :]
 
 
 def get_input_dates(end_date, offset, n_folds, n_weeks):
@@ -91,9 +96,8 @@ def read_data(input_paths, response_paths, fold_col = 'input_date'):
 
 
 def fit_pipeline( n_folds, offset, n_weeks, input_dir, response_dir,
-    model_name, grid_name, n_iter,
+    model_name, grid_name, n_iter, n_jobs = -2, **context ):
     # n_jobs = -2 uses all but 1 cpu
-    n_jobs = -2, **context ):
     logging.basicConfig(
         level=logging.INFO,
         format = '{asctime} {name:12s} {levelname:8s} {message}',
@@ -120,11 +124,12 @@ def fit_pipeline( n_folds, offset, n_weeks, input_dir, response_dir,
     pipeline.set_param_grid(grid)
     print(pipeline.param_grid)
 
-    cv = get_temporal_cv(input_data, n_weeks)
+    cv = TemporalCrossValidator(input_data, n_weeks)
+    final_fold = cv.final_fold(input_data)
 
     grid_search = RandomizedSearchCV(pipeline,
-        refit = False, n_jobs = n_jobs, n_iter = n_iter,
-        cv = cv, scoring = 'roc_auc',
+        n_jobs = n_jobs, n_iter = n_iter, refit = False,
+        cv = cv.split(), scoring = 'roc_auc',
         param_distributions = pipeline.param_grid,
         # verbose output suppressed during multiprocessing
         verbose = 2) # show folds and model fits as they complete
@@ -138,10 +143,12 @@ def fit_pipeline( n_folds, offset, n_weeks, input_dir, response_dir,
 
     with Timer('fit pipeline') as t:
         grid_search.fit(input_data, response_data)
-        S3Pickler().dump(grid_search.best_estimator_, pkl_path, model_name)
+        logging.info('Cross-validation completed. Best CV AUC: {0:.3f}'.format(
+            grid_search.best_score_))
+        logging.info('Best params: {}'.format(grid_search.best_params_))
 
-    logging.info('CV AUC: {0:.3f}'.format(grid_search.best_score_))
-    risk_scores = grid_search.predict_proba(input_data)
+    grid_search.best_estimator_ = grid_search.refit(final_fold)
+    S3Pickler().dump(grid_search.best_estimator_, pkl_path, model_name)
 
 
 def main():

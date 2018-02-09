@@ -19,6 +19,12 @@ class CVPipeline(Pipeline):
         }
         self.param_grid = param_grid
 
+    def refit(self, X):
+        self.best_estimator_ = clone(self.estimator).set_params(
+                **self.best_params_)
+        final_fold = self.cv
+        self.best_estimator_.fit(X, **fit_params)
+
     def extract_step(self, step_name):
         return self.named_steps.get(step_name)
 
@@ -74,7 +80,7 @@ class DummyEncoder(BaseEstimator, TransformerMixin):
         X.loc[~X[col].isin(self.other[col]), col] = replacement
 
     def transform(self, X, y=None, **kwargs):
-        logging.info('Getting dummies: transform data')
+        logging.debug('Getting dummies: transform data')
         X = X.copy()
         [self.otherize(col, X) for col in self.other.keys()]
 
@@ -84,9 +90,9 @@ class DummyEncoder(BaseEstimator, TransformerMixin):
             transformed[empty_cols] = 0
 
         transformed = transformed[self.transformed_columns]
-        #n_dummies = len(transformed.columns) - len(X.columns) + len(self.columns)
-        #logging.info('Transformed {} dummies out of {} features'.format(
-        #    n_dummies, len(self.columns)))
+        n_dummies = len(transformed.columns) - len(X.columns) + len(self.columns)
+        logging.debug('Transformed {} dummies out of {} features'.format(
+            n_dummies, len(self.columns)))
         return transformed
 
     def fit(self, X, y=None, **kwargs):
@@ -95,7 +101,7 @@ class DummyEncoder(BaseEstimator, TransformerMixin):
 
         X[self.columns].apply(lambda x: self.collapse_categories(x))
 
-        logging.info('Getting dummies: fit encoder')
+        logging.debug('Getting dummies: fit encoder')
         X = X.copy()
         [self.otherize(col, X) for col in self.other.keys()]
 
@@ -104,9 +110,9 @@ class DummyEncoder(BaseEstimator, TransformerMixin):
         self.transformed_columns = pd.Index([col for col in transformed.columns
             if not col.endswith('_other')])
 
-        #n_dummies = len(self.transformed_columns) - len(X.columns) + len(self.column
-        #logging.info('Fit {} dummies out of {} features'.format(
-        #    n_dummies, len(self.columns)))
+        n_dummies = len(self.transformed_columns) - len(X.columns) + len(self.column
+        logging.debug('Fit {} dummies out of {} features'.format(
+            n_dummies, len(self.columns)))
         return self
 
 
